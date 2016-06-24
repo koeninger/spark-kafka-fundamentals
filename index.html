@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Title</title>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+    <style type="text/css">
+      @import url(http://fonts.googleapis.com/css?family=Yanone+Kaffeesatz);
+      @import url(http://fonts.googleapis.com/css?family=Droid+Serif:400,700,400italic);
+      @import url(http://fonts.googleapis.com/css?family=Ubuntu+Mono:400,700,400italic);
+
+      body { font-family: 'Droid Serif'; }
+      h1, h2, h3 {
+        font-family: 'Yanone Kaffeesatz';
+        font-weight: normal;
+      }
+      img {
+        width: 100%;
+        height: auto;
+      }
+      img#kixer-logo {
+        width: 130px;
+        height: 54px;
+      }
+      ul, ol {
+        margin: 6px 0 6px 0;  
+      }
+      li {
+        margin: 0 0 12px 0;  
+      }
+      .remark-code, .remark-inline-code { font-family: 'Ubuntu Mono'; }
+    </style>
+  </head>
+  <body>
+    <textarea id="source">
+
+class: center, middle
+## Fundamentals of Spark and Kafka
+
+cody@koeninger.org
+
+
+---
+
+## What is Apache Spark
+
+- Distributed computing that is fast to write and reasonably fast to run
+- Batch or microbatch streaming (~250ms batches)
+- Integrates with most data stores
+- Includes libraries for ML, Graph, SQL-like api
+--
+
+- NOT dependent on a Hadoop cluster
+- NOT a replacement for HDFS or other data stores
+- NOT restricted to in-memory data sets
+
+---
+
+## Language choice
+
+- Scala, Java, Python, R
+- Scala api is the best (closures, shell)
+- Learning Scala isn't hard, if you want to understand the implementation you'll need it
+
+--
+
+Put this on your path:
+- [SBT the rebel cut](https://github.com/paulp/sbt-extras)
+
+Read one of these:
+- [Scala for the Impatient](http://horstmann.com/scala/)
+- [Essential Scala](http://underscore.io/books/essential-scala/)
+- [Programming in Scala](http://www.artima.com/pins1ed/)
+
+---
+
+## Install
+
+prereqs are jvm, passwordless ssh
+
+http://spark.apache.org/downloads.html
+
+pre-built matching your hadoop version, or pick one if you don't use hadoop
+
+unpack tarball to same place on each node
+
+---
+
+## Cluster Manager
+
+Just use standalone unless you already have an investment in Yarn or Mesos
+
+edit ./conf/slaves
+
+```bash
+./sbin/start-all.sh
+```
+
+http://localhost:8080/
+
+---
+
+## Hello World
+
+```bash
+./bin/spark-shell --master spark://Codys-MacBook-Pro.local:7077
+```
+
+```scala
+sc.textFile("/var/tmp/fake_events.txt").countByValue
+
+sc.textFile("/var/tmp/fake_events.txt").filter(x => x != "").countByValue
+```
+
+---
+## When does code run?
+
+What happens when I do
+
+```scala
+sc.textFile("/var/tmp/somethingthatdoesntexist")
+```
+
+---
+## RDD
+
+```scala
+val rdd = sc.parallelize(1 to 1000)
+
+rdd.partitions
+rdd.dependencies
+rdd.compute
+
+rdd.partitioner
+rdd.preferredLocations
+
+rdd.toDebugString
+```
+
+How do these change for an RDD that is a transformation? A join?
+
+---
+## Narrow vs Wide stages
+
+in UI, click on application -> jobs -> description for a particular job -> DAG visualization
+
+compare hello world with and without filter
+
+---
+## Shuffle
+
+```scala
+val filtered = sc.textFile("/var/tmp/fake_events.txt").
+  filter(x => x != "").
+  map(x => (x, 1))
+
+filtered.reduceByKey(_ + _).collect
+
+filtered.groupByKey().mapValues(x => x.size).collect
+```
+
+in UI, under details for a particular job's completed stages, look at shuffle read and write
+
+
+---
+## Where does code run
+
+What will this print out?
+
+```scala
+(1 to 10).foreach(x => println(x))
+
+sc.parallelize(1 to 10).foreach(x => println(x))
+```
+
+---
+## Closures
+
+```scala
+val needle = 3
+
+println(needle)
+
+sc.parallelize(1 to 10).filter(x => needle == x).collect
+```
+
+Compare to:
+
+```scala
+var total = 0
+
+sc.parallelize(1 to 10).foreach(x => total += x)
+
+println(total)
+```
+
+---
+## Serialization
+
+```scala
+val sock = new java.net.Socket("localhost", 8080)
+
+sc.parallelize(1 to 10).map(x => sock.getLocalPort()).collect
+```
+
+See .foreachPartition or .mapPartitions
+
+---
+
+## DStreams
+
+With appropriate definitions of sleepUpTo and getLatestOffsets
+```scala
+while(true) {
+  sleepUpTo(Seconds(5))
+  val offsets = getLatestOffsets
+  val rdd = KafkaRDD[String, String](..., offsets, ...)
+  rdd.foreach(doSomething)
+}
+```
+--
+is conceptually the same as
+
+```scala
+val ssc = new StreamingContext(..., Seconds(5))
+val stream = DirectKafkaInputDStream[String, String](...)
+stream.foreachRDD { rdd =>
+  rdd.foreach(doSomething)
+}
+```
+
+
+---
+## Sql / Dataframes / Datasets
+
+```scala
+val df = sqlContext.read.json("/var/tmp/fake_events.json")
+
+val result = df.filter(df("_corrupt_record").isNull).
+ groupBy(df("event")).
+ count()
+
+result.show()
+
+result.explain()
+```
+A streaming equivalent is underway for Spark 2.0
+
+
+---
+## Where to learn more about Spark
+
+- [Official Docs](http://spark.apache.org/docs/latest/index.html)
+
+- [O'Reilly Learning Spark](http://shop.oreilly.com/product/0636920028512.do)
+
+- [Spark Summit videos](https://spark-summit.org/2016/schedule/)
+
+- Implement your own RDD
+
+---
+## What is Apache Kafka
+
+- Circular buffer
+- Decouples producers from consumers
+- Organized by topic
+- Distributed and replicated by partition
+--
+
+- NOT a traditional transactional message queue
+- NOT a timeseries database
+--
+
+- NO global ordering, just per-partition offset
+- NO indexing except by offset
+- Producers write whatever, server doesn't enforce schema
+- Consumers read whenever, server doesn't enforce delivery
+
+---
+
+## If you're reading these slides instead of watching the talk...
+
+go read the docs
+
+http://kafka.apache.org/documentation.html
+
+---
+
+## Quickstart
+
+edit config/server.properties, set broker.id and log.dir
+
+```bash
+./bin/zookeeper-server-start.sh config/zookeeper.properties &
+
+./bin/kafka-server-start.sh config/server.properties &
+
+./bin/kafka-topics.sh --create --zookeeper localhost:2181 --replication-factor 1 --partitions 2 --topic test
+
+./bin/kafka-console-producer.sh --broker-list localhost:9092 --topic test
+
+./bin/kafka-console-consumer.sh --zookeeper localhost:2181 --topic test
+```
+
+---
+## Kafka 0.10 features
+... that you might be interested in from a Spark point of view:
+
+- Security / TLS
+- Dynamic subscription to topics that match a pattern
+- Storing offsets in a Kafka topic
+- Pre-fetching of messages
+
+---
+## Using Spark with Kafka
+
+Kafka version 0.8 +
+* [RDD](https://github.com/koeninger/kafka-exactly-once/blob/master/src/main/scala/example/BasicRDD.scala)
+* [Stream](https://github.com/koeninger/kafka-exactly-once/blob/master/src/main/scala/example/BasicStream.scala)
+
+Kafka version 0.10 +
+* [Jira](https://issues.apache.org/jira/browse/SPARK-12177)
+* [RDD](https://github.com/koeninger/kafka-exactly-once/blob/kafka-0.9/src/main/scala/example/BasicRDD.scala)
+* [Stream](https://github.com/koeninger/kafka-exactly-once/blob/kafka-0.9/src/main/scala/example/BasicStream.scala)
+
+```bash
+# in kafka-exactly-once directory
+sbt assembly
+
+# in spark directory
+./bin/spark-submit --master spark://Codys-MacBook-Pro.local:7077 --class example.BasicStream /Users/cody/projects/kafka-exactly-once/target/scala-2.11/kafka-exactly-once-assembly-2.0.0-SNAPSHOT.jar 2>&1 | grep -v INFO
+```
+---
+## Where to learn more about Kafka
+
+- [Docs](http://kafka.apache.org/documentation.html)
+- [Kafka the Definitive Guide](http://shop.oreilly.com/product/0636920044123.do)
+- https://github.com/koeninger/kafka-exactly-once
+
+    </textarea>
+    <script src="slides/remark-latest.min.js">
+    </script>
+    <script>
+      var slideshow = remark.create();
+    </script>
+  </body>
+</html>
